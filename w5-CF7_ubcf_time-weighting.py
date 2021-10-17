@@ -14,18 +14,18 @@ ratings = pd.read_csv('C:/RecoSys/Data/u.data', names=r_cols,  sep='\t',encoding
 # Rating 데이터를 test, train으로 나누고 train을 full matrix로 변환
 x = ratings.copy()
 y = ratings['user_id']
-x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, stratify=y, random_state=20)
-rating_matrix = x_train.pivot(values='rating', index='user_id', columns='movie_id')
-time_matrix = x_train.pivot(values='timestamp', index='user_id', columns='movie_id') # 추가됨 (943, 1631)
+train, test, y_train, y_test = train_test_split(x, y, test_size=0.25, stratify=y, random_state=20)
+rating_matrix = train.pivot(values='rating', index='user_id', columns='movie_id')
+time_matrix = train.pivot(values='timestamp', index='user_id', columns='movie_id') # 추가됨 (943, 1631)
 
 # RMSE 계산을 위한 함수
 def RMSE(y_true, y_pred):
     return np.sqrt(np.mean((np.array(y_true) - np.array(y_pred))**2))
 
 def score(model, neighbor_size=0):
-    id_pairs = zip(x_test['user_id'], x_test['movie_id'])
+    id_pairs = zip(test['user_id'], test['movie_id'])
     y_pred = np.array([model(user, movie, neighbor_size) for (user, movie) in id_pairs])
-    y_true = np.array(x_test['rating'])
+    y_true = np.array(test['rating'])
     return RMSE(y_true, y_pred)
 
 # 모든 가능한 사용자 pair의 Cosine similarities 계산

@@ -2,6 +2,17 @@
 # author: 임일
 # IBCF binary (precision, recall, F1 구하기)
 
+"""
+IDEA:
+진정한 의미의 IBCF -> 추천해주는 movie_id가 실제로 test set에 있는지를 평가하게 되므로
+기존의 RMSE와 달리, binary metrics(precision, recall, F1)를 사용하여 모델 성능을 평가.
+1) ref_group = rating_matrix_T[user]를 내림차순으로 정렬 후, 상위 ref_size만큼 영화 id 가져오기
+2) sim_scores = item_similarity[ref_group.index].mean(axis=1)해서 train set에 있는 모든 영화 각각과
+ref_group 영화들 간의 유사도 구하기.
+3) sim_scores.sort_values[ascending=False][:n_of_recommendations].index로 추천해줄 영화 idx 구하기
+4) 모델의 성능 측정
+"""
+
 import numpy as np
 import pandas as pd
 # Read rating data
@@ -21,35 +32,38 @@ from sklearn.model_selection import train_test_split
 # Rating 데이터를 test, train으로 나누고 train을 full matrix로 변환
 x = ratings.copy()
 y = ratings['user_id']
-x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, stratify=y, random_state=12)
-rating_matrix_t = x_train.pivot(values='rating', index='movie_id', columns='user_id')
-x_test = x_test.set_index('user_id')
-x_train = x_train.set_index('user_id')
+train, test, y_train, y_test = train_test_split(x, y, test_size=0.25, stratify=y, random_state=12)
+rating_matrix_t = train.pivot(values='rating', index='movie_id', columns='user_id')
+test = test.set_index('user_id')
+train = train.set_index('user_id')
 
 # precision, recall, F1 계산을 위한 함수
 def b_metrics(y_true, y_pred):
-    n_match = set(y_true).intersection(set(y_pred))
+    n_match = set(y_true).intersection(set(y_pred)) # TP
     precision = 0
     recall = 0
     F1 = 0
     if len(y_pred) > 0:          # 분모가 0인지 확인
-        precision = len(n_match) / len(y_pred)
+        precision = len(n_match) / len(y_pred) # TP / (TP+FP)
     if len(y_true) > 0:          # 분모가 0인지 확인
-        recall = len(n_match) / len(y_true)
+        recall = len(n_match) / len(y_true) # TP / (TP+FN)
     if (precision + recall) > 0: # 분모가 0인지 확인
         F1 = 2 * (precision * recall) / (precision + recall)
     return precision, recall, F1
 
+# ref_size: train set에 있는 영화 중 몇 개를 가지고 추천해줄 것인지
+# n_of_recomm: 해당 user에게 몇 개 영화를 추천해줄 것인지
 def score_binary(model, n_of_recomm=10, ref_size=2):
     precisions = []
     recalls = []
     F1s = []
-    for user in set(x_test.index):              # Test set에 있는 모든 사용자 각각에 대해서 실행
-        y_true = x_test.loc[user]['movie_id']
-        #y_true = x_test.loc[user][x_test.loc[user]['rating'] >= cutline]['movie_id']    # cutline 이상의 rating만 정확한 것으로 간주
+    for user in set(test.index):              # Test set에 있는 모든 사용자 각각에 대해서 실행
+        y_true = test.loc[user]['movie_id']
+        #y_true = test.loc[user][test.loc[user]['rating'] >= cutline]['movie_id']    # cutline 이상의 rating만 정확한 것으로 간주
         if n_of_recomm == 0:                    # 실제 평가한 영화수 같은 수만큼 추천 
             n_of_recomm = len(y_true)
         y_pred = model(user, n_of_recomm, ref_size)
+        # 각 user에게 영화를 추천한 뒤 추천된 영화 목록 바탕으로 precision, recall, F1 계산 -> 모든 user들에 대해 평균내서 최종 score 구하기
         precision, recall, F1 = b_metrics(y_true, y_pred)
         precisions.append(precision)
         recalls.append(recall)
@@ -65,7 +79,7 @@ item_similarity = pd.DataFrame(item_similarity, index=rating_matrix_t.index, col
 def ibcf_binary(user, n_of_recomm=10, ref_size=2):
     rated_index = rating_matrix_t[user][rating_matrix_t[user] > 0].index
     ref_group = rating_matrix_t[user].sort_values(ascending=False)[:ref_size]
-    sim_scores = item_similarity[ref_group.index].mean(axis=1)
+    sim_scores = item_similarity[ref_group.index].mean(axis=1) # item_similarity[ref_group.index] -> (1631, 10) -> axis=1 기준으로 mean() -> (1631, )
     sim_scores = sim_scores.drop(rated_index)
     recommendations = sim_scores.sort_values(ascending=False)[:n_of_recomm].index
     return recommendations
