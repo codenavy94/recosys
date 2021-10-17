@@ -3,6 +3,17 @@
 # Bias-from-mean CF
 # modified by codenavy94
 
+"""
+IDEA:
+weighted average 계산을 할 때 지금까지는
+np.dot(sim_scores, movie_ratings) / sim_scores.sum()을 했었는데
+기존의 movie_ratings는 현 movie_id에 대한 (평가를 완료한) 사용자들의 rating을 의미했음.
+그러나 bias-from-mean을 사용할 때에는
+movie_ratings - others_mean 즉, (사용자들의 실제 rating) - (각 사용자들의 평소의 점수(평점평균))
+즉, 편차를 사용해서 예측편차를 구하고 해당 예측편차를 현 user의 user_mean에 더해서
+최종 예측값을 구함.
+"""
+
 import pandas as pd
 import numpy as np
 from sklearn.model_selection import train_test_split
@@ -41,8 +52,8 @@ rating_mean = rating_matrix.mean(axis=1) # (943,)
 # 사용자의 평가경향을 고려한 추천
 def ubcf_bias(user_id, movie_id):
     import numpy as np
-    # 현 user의 평균 가져오기
-    user_mean = rating_mean[user_id]
+    # 현 user가 평가한 영화들에 대해 매긴 평점 평균 가져오기 (=현 user는 평균적으로 몇 점을 주나?)
+    user_mean = rating_mean[user_id] # (1,)
     if movie_id in rating_matrix:
         # 현 user와 다른 사용자의 유사도 가져오기
         sim_scores = user_similarity[user_id] # (943,)
@@ -54,8 +65,9 @@ def ubcf_bias(user_id, movie_id):
         none_rating_idx = movie_ratings[movie_ratings.isnull()].index
         movie_ratings = movie_ratings.drop(none_rating_idx)
         sim_scores = sim_scores.drop(none_rating_idx)
-        others_mean = others_mean.drop(none_rating_idx)
+        others_mean = others_mean.drop(none_rating_idx) # 현 영화를 평가한 모든 사용자들 각각의 평점평균
         # 편차 예측치 계산
+        # 현 movie에 대한 (평가를 한) 사용자들의 평점 - (평가를 한) 사용자들 각각의 평점평균
         movie_ratings = movie_ratings - others_mean
         prediction = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
         # 예측값에 현 사용자의 평균 더하기

@@ -15,7 +15,7 @@ movies = movies[['movie_id', 'title']]
 movies = movies.set_index('movie_id')
 r_cols = ['user_id', 'movie_id', 'rating', 'timestamp']
 ratings = pd.read_csv('C:/RecoSys/Data/u.data', names=r_cols,  sep='\t',encoding='latin-1')
-ratings = ratings.drop('timestamp', axis=1)
+ratings = ratings.drop('timestamp', axis=1) # size = (100,000, 3)
 
 from sklearn.model_selection import train_test_split
 
@@ -29,7 +29,7 @@ rating_matrix_t = train.pivot(values='rating', index='movie_id', columns='user_i
 def RMSE(y_true, y_pred):
     return np.sqrt(np.mean((np.array(y_true) - np.array(y_pred))**2))
 
-def score(model, neighbor_size=20):
+def score(model, item_neighbor_size=20):
     id_pairs = zip(test['user_id'], test['movie_id'])
     y_pred = np.array([model(user, movie) for (user, movie) in id_pairs])
     y_true = np.array(test['rating'])
@@ -37,7 +37,7 @@ def score(model, neighbor_size=20):
 
 # 아이템 pair의 Cosine similarities 계산
 from sklearn.metrics.pairwise import cosine_similarity
-matrix_dummy = rating_matrix_t.copy().fillna(0)
+matrix_dummy = rating_matrix_t.copy().fillna(0) # movie_id가 행인 matrix
 item_similarity = cosine_similarity(matrix_dummy, matrix_dummy) # (1631, 1631)
 item_similarity = pd.DataFrame(item_similarity, index=rating_matrix_t.index, columns=rating_matrix_t.index)
 
@@ -47,8 +47,8 @@ def ibcf(user_id, movie_id):
         if movie_id in item_similarity:     # 현재 영화가 train set에 있는지 확인
             # 현재 영화와 다른 영화의 similarity 값 가져오기
             sim_scores = item_similarity[movie_id] # (1631, )
-            # 현 사용자의 모든 rating 값 가져오기
-            user_rating = rating_matrix_t[user_id]
+            # 현 사용자의 "모든 영화"에 대한 rating 값 가져오기
+            user_rating = rating_matrix_t[user_id] # (1631, )
             # 사용자가 평가하지 않은 영화 index 가져오기
             non_rating_idx = user_rating[user_rating.isnull()].index
             # 사용자가 평가하지 않은 영화 제거
@@ -63,7 +63,7 @@ def ibcf(user_id, movie_id):
         mean_rating = 3.0
     return mean_rating
 
-def ibcf_knn(user_id, movie_id, neighbor_size=20):
+def ibcf_knn_original(user_id, movie_id, item_neighbor_size=20):
     import numpy as np
     if user_id in rating_matrix_t:          # 사용자가 train set에 있는지 확인
         if movie_id in item_similarity:     # 현재 영화가 train set에 있는지 확인
@@ -77,21 +77,21 @@ def ibcf_knn(user_id, movie_id, neighbor_size=20):
             user_rating = user_rating.dropna()
             # 사용자가 평가하지 않은 영화의 similarity 값 제거
             sim_scores = sim_scores.drop(non_rating_idx)
-            if neighbor_size == 0:               # Neighbor size가 지정되지 않은 경우
+            if item_neighbor_size == 0:               # Neighbor size가 지정되지 않은 경우
                 # 현재 영화를 평가한 모든 사용자의 가중평균값 구하기
                 mean_rating = np.dot(sim_scores, user_rating) / sim_scores.sum()
             else:                                # Neighbor size가 지정된 경우
                 # 지정된 neighbor size 값과 해당 영화를 평가한 총사용자 수 중 작은 것으로 결정
-                neighbor_size = min(neighbor_size, len(sim_scores))
+                item_neighbor_size = min(item_neighbor_size, len(sim_scores))
                 # array로 바꾸기 (argsort를 사용하기 위함)
                 sim_scores = np.array(sim_scores)
                 user_rating = np.array(user_rating)
                 # 유사도를 순서대로 정렬
                 user_idx = np.argsort(sim_scores)
                 # 유사도를 neighbor size만큼 받기
-                sim_scores = sim_scores[user_idx][-neighbor_size:]
+                sim_scores = sim_scores[user_idx][-item_neighbor_size:]
                 # 영화 rating을 neighbor size만큼 받기
-                user_rating = user_rating[user_idx][-neighbor_size:]
+                user_rating = user_rating[user_idx][-item_neighbor_size:]
                 # 최종 예측값 계산 
                 mean_rating = np.dot(sim_scores, user_rating) / sim_scores.sum()
         else:
@@ -100,8 +100,43 @@ def ibcf_knn(user_id, movie_id, neighbor_size=20):
         mean_rating = 3.0
     return mean_rating
 
+# argsort를 사용하지 않는 방법
+def ibcf_knn(user_id, movie_id, item_neighbor_size=20):
+    import numpy as np
+    if user_id in rating_matrix_t:          # 사용자가 train set에 있는지 확인
+        if movie_id in item_similarity:     # 현재 영화가 train set에 있는지 확인
+            # 현재 영화와 다른 영화의 similarity 값 가져오기
+            sim_scores = item_similarity[movie_id]
+            # 현 사용자의 모든 rating 값 가져오기
+            user_rating = rating_matrix_t[user_id]
+            # 사용자가 평가하지 않은 영화 index 가져오기
+            non_rating_idx = user_rating[user_rating.isnull()].index
+            # 사용자가 평가하지 않은 영화 제거
+            user_rating = user_rating.dropna()
+            # 사용자가 평가하지 않은 영화의 similarity 값 제거
+            sim_scores = sim_scores.drop(non_rating_idx)
+            if item_neighbor_size == 0:               # Neighbor size가 지정되지 않은 경우
+                # 사용자가 평가한 영화들 중에서 현재 영화와 다른 모든 영화를 사용하여 계산한 가중평균
+                mean_rating = np.dot(sim_scores, user_rating) / sim_scores.sum()
+            else:                                # Neighbor size가 지정된 경우
+                # 지정된 neighbor size 값과 현재 사용자가 평가한 총 영화 개수 중에서 작은 값으로 결정
+                item_neighbor_size = min(item_neighbor_size, len(sim_scores))
+                # 유사도를 순서대로 정렬
+                sim_scores = sim_scores.sort_values(ascending=False)[:item_neighbor_size]
+                k_movie_idx = sim_scores.index
+                # 영화 rating을 neighbor size만큼 받기
+                user_rating = user_rating[k_movie_idx]
+                # 최종 예측값 계산
+                mean_rating = np.dot(sim_scores, user_rating) / sim_scores.sum()
+        else:
+            mean_rating = 3.0
+    else:
+        mean_rating = 3.0
+    return mean_rating
+
 # 정확도 계산
-score(ibcf)
+print(score(ibcf_knn_original))
+print(score(ibcf_knn))
 
 '''
 ###################### 추천하기 ######################

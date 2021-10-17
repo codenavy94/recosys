@@ -1,6 +1,17 @@
 # Created on Sep 2021
 # @author: 임일
 # Significance weighting
+# modified by codenavy94
+
+"""
+IDEA:
+weighted average를 계산하기 위해 기존에 movie_ratings, sim_scores, others_mean에서
+현 movie_id를 평가하지 않은 user_idx를 추출하여 제거하고 평점을 예측했다면,
+significance weighting에서는 SIG_LEVEL을 정해두고
+1) (rating_binary X rating_binary.T)[user_id]에서 SIG_LEVEL보다 작은 user_idx 또한 제거
+2) 기존의 방법대로 weighted average + bias-from-mean을 구해
+3) prediction = predicted 편차 + user_mean 으로 최종 예측평점을 구한다.
+"""
 
 import pandas as pd
 import numpy as np
@@ -15,17 +26,17 @@ ratings = ratings.drop('timestamp', axis=1)
 # Rating 데이터를 test, train으로 나누고 train을 full matrix로 변환
 x = ratings.copy()
 y = ratings['user_id']
-x_train, x_test, y_train, y_test = train_test_split(x, y, test_size=0.25, stratify=y, random_state=12)
-rating_matrix = x_train.pivot(values='rating', index='user_id', columns='movie_id')
+train, test, y_train, y_test = train_test_split(x, y, test_size=0.25, stratify=y, random_state=12)
+rating_matrix = train.pivot(values='rating', index='user_id', columns='movie_id')
 
 # RMSE 계산을 위한 함수
 def RMSE(y_true, y_pred):
     return np.sqrt(np.mean((np.array(y_true) - np.array(y_pred))**2))
 
 def score(model, neighbor_size=0):
-    id_pairs = zip(x_test['user_id'], x_test['movie_id'])
+    id_pairs = zip(test['user_id'], test['movie_id'])
     y_pred = np.array([model(user, movie, neighbor_size) for (user, movie) in id_pairs])
-    y_true = np.array(x_test['rating'])
+    y_true = np.array(test['rating'])
     return RMSE(y_true, y_pred)
 
 # 모든 가능한 사용자 pair의 Cosine similarities 계산
@@ -36,7 +47,7 @@ user_similarity = pd.DataFrame(user_similarity, index=rating_matrix.index, colum
 # 모든 user의 rating 평균 계산 
 rating_mean = rating_matrix.mean(axis=1)
 
-def ubcf_sig_weighting(user_id, movie_id, neighbor_size=20):
+def ubcf_sig_weighting_original(user_id, movie_id, neighbor_size=20):
     import numpy as np
     # 현 user의 평균 가져오기
     user_mean = rating_mean[user_id]
@@ -50,11 +61,11 @@ def ubcf_sig_weighting(user_id, movie_id, neighbor_size=20):
         # 현 user와 다른 사용자 간의 공통 rating개수 가져오기
         common_counts = sig_counts[user_id] # (943, )
         # 현 movie에 대한 rating이 없는 user 선택
-        no_rating = movie_ratings.isnull()
+        no_rating_TF = movie_ratings.isnull() # True, False로 구성된 np.array (943, )
         # 공통으로 평가한 영화의 수가 SIG_LEVEL보다 낮은 사람 선택
-        low_significance = common_counts < SIG_LEVEL
+        low_significance_TF = common_counts < SIG_LEVEL # True, False로 구성된 np.array (943, )
         # 평가를 안 하였거나, SIG_LEVEL이 기준 이하인 user 제거
-        none_rating_idx = movie_ratings[no_rating | low_significance].index
+        none_rating_idx = movie_ratings[no_rating_TF | low_significance_TF].index
         movie_ratings = movie_ratings.drop(none_rating_idx)
         sim_scores = sim_scores.drop(none_rating_idx)
         others_mean = others_mean.drop(none_rating_idx)
@@ -89,12 +100,63 @@ def ubcf_sig_weighting(user_id, movie_id, neighbor_size=20):
         prediction = user_mean
     return prediction
 
+
+def ubcf_sig_weighting(user_id, movie_id, neighbor_size=20):
+    import numpy as np
+    # 현 user의 평균 가져오기
+    user_mean = rating_mean[user_id]
+    if movie_id in rating_matrix:
+        # 현 user와 다른 사용자 간의 유사도 가져오기
+        sim_scores = user_similarity[user_id]
+        # 현 movie의 rating 가져오기. 즉, rating_matrix의 열을 추출
+        movie_ratings = rating_matrix[movie_id]
+        # 모든 사용자의 rating 평균 가져오기
+        others_mean = rating_mean
+        # 현 user와 다른 사용자 간의 공통 rating개수 가져오기
+        common_counts = sig_counts[user_id] # (943, )
+        # 현 movie에 대한 rating이 없는 user 선택
+        no_rating_TF = movie_ratings.isnull() # True, False로 구성된 np.array (943, )
+        # 공통으로 평가한 영화의 수가 SIG_LEVEL보다 낮은 사람 선택
+        low_significance_TF = common_counts < SIG_LEVEL # True, False로 구성된 np.array (943, )
+        # 평가를 안 하였거나, SIG_LEVEL이 기준 이하인 user 제거
+        none_rating_idx = movie_ratings[no_rating_TF | low_significance_TF].index
+        movie_ratings = movie_ratings.drop(none_rating_idx)
+        sim_scores = sim_scores.drop(none_rating_idx)
+        others_mean = others_mean.drop(none_rating_idx)
+        if len(movie_ratings) > MIN_RATINGS:    # 충분한 rating이 있는지 확인
+            if neighbor_size == 0:              # Neighbor size가 지정되지 않은 경우
+                # 편차로 예측치 계산
+                movie_ratings = movie_ratings - others_mean
+                prediction = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
+                # 예측값에 현 사용자의 평균 더하기
+                prediction = prediction + user_mean
+            else:                               # Neighbor size가 지정된 경우
+                # 지정된 neighbor size 값과 해당 영화를 평가한 총사용자 수 중 작은 것으로 결정
+                neighbor_size = min(neighbor_size, len(sim_scores))
+                # sim_scores를 내림차순으로 정렬하고 k만큼 추출
+                sim_scores = sim_scores.sort_values(ascending=False)[:neighbor_size]
+                user_idx = sim_scores.index
+                # movie_ratings, others_mean도 k에 대해서 추출
+                movie_ratings = movie_ratings[user_idx]
+                others_mean = others_mean[user_idx]
+                # 편차로 예측치 계산
+                movie_ratings = movie_ratings - others_mean
+                prediction = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
+                # 예측값에 현 사용자의 평균 더하기
+                prediction = prediction + user_mean
+        else:
+            prediction = user_mean
+    else:
+        prediction = user_mean
+    return prediction
+
+
 # 각 사용자 쌍의 공통 rating 수(significance level)를 집계하기 위한 함수
 def count_num1():       # for loop 이용
     # 공통 영화 수를 기록할 matrix 만들기
     counts = np.zeros(np.shape(user_similarity))
     # 각 user의 rating 영화를 1로 표시하고 전치
-    rating_binary = (rating_matrix > 0).T
+    rating_binary = (rating_matrix > 0).T # 행은 movie_id, 열은 user_id
     # 사용자별 공통 rating 수 세기
     for i, user in enumerate(rating_binary):
         for j, other in enumerate(rating_binary):
@@ -116,8 +178,8 @@ sig_counts = pd.DataFrame(sig_counts, index=rating_matrix.index, columns=rating_
 SIG_LEVEL = 4       # minimum significance level 지정
 MIN_RATINGS = 2     # 예측치 계산에 사용할 minimum rating 수 지정
 
-score(ubcf_sig_weighting, 35)
-
+print(score(ubcf_sig_weighting_original, 20))
+print(score(ubcf_sig_weighting, 20))
 
 '''
 

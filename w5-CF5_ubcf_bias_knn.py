@@ -34,17 +34,17 @@ user_similarity = cosine_similarity(matrix_dummy, matrix_dummy)
 user_similarity = pd.DataFrame(user_similarity, index=rating_matrix.index, columns=rating_matrix.index)
 
 # 모든 user의 rating 평균 계산 
-rating_mean = rating_matrix.mean(axis=1)
+rating_mean = rating_matrix.mean(axis=1) # (943, )
 
 # KNN + 사용자 평가 경향 추천
-def ubcf_bias_knn(user_id, movie_id, neighbor_size=20):
+def ubcf_bias_knn_original(user_id, movie_id, neighbor_size=20):
     import numpy as np
     # 현 user의 평균 가져오기
     user_mean = rating_mean[user_id]
-    if movie_id in rating_matrix:
+    if movie_id in rating_matrix: # 평가하려는 movie_id가 train set에 있다면
         # 현 user와 다른 사용자 간의 유사도 가져오기
         sim_scores = user_similarity[user_id]
-        # 현 movie의 rating 가져오기
+        # 현 movie의 모든 사용자들의 rating 가져오기
         movie_ratings = rating_matrix[movie_id]
         # 모든 사용자의 rating 평균 가져오기
         others_mean = rating_mean
@@ -82,7 +82,51 @@ def ubcf_bias_knn(user_id, movie_id, neighbor_size=20):
         prediction = user_mean
     return prediction
 
-score(ubcf_bias_knn, 35)
+
+# KNN + 사용자 평가 경향 추천(argsort 사용하지 않는 버전)
+def ubcf_bias_knn(user_id, movie_id, neighbor_size=20):
+    import numpy as np
+    # 현 user의 평균 가져오기
+    user_mean = rating_mean[user_id]
+    if movie_id in rating_matrix: # 평가하려는 movie_id가 train set에 있다면
+        # 현 user와 다른 사용자 간의 유사도 가져오기
+        sim_scores = user_similarity[user_id]
+        # 현 movie의 모든 사용자들의 rating 가져오기
+        movie_ratings = rating_matrix[movie_id]
+        # 모든 사용자의 rating 평균 가져오기
+        others_mean = rating_mean
+        # 현 movie에 대한 rating이 없는 user 삭제
+        none_rating_idx = movie_ratings[movie_ratings.isnull()].index
+        movie_ratings = movie_ratings.drop(none_rating_idx)
+        sim_scores = sim_scores.drop(none_rating_idx)
+        others_mean = others_mean.drop(none_rating_idx)
+        if neighbor_size == 0:               # Neighbor size가 지정되지 않은 경우
+            # 편차로 예측치 계산
+            movie_ratings = movie_ratings - others_mean
+            prediction = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
+            # 예측값에 현 사용자의 평균 더하기
+            prediction = prediction + user_mean
+        else:                                # Neighbor size가 지정된 경우
+            # 지정된 neighbor size 값과 해당 영화를 평가한 총사용자 수 중 작은 것으로 결정
+            neighbor_size = min(neighbor_size, len(sim_scores))
+            # sim_scores를 내림차순으로 정렬하고 상위 k명에 대한 user_idx 추출
+            sim_scores = sim_scores.sort_values(ascending=False)[:neighbor_size]
+            user_idx = sim_scores.index
+            # movie_ratings와 others_mean에서 user_idx만 추출
+            movie_ratings = movie_ratings[user_idx]
+            others_mean = others_mean[user_idx]
+            # 편차로 예측치 계산
+            movie_ratings = movie_ratings - others_mean
+            prediction = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
+            # 예측값에 현 사용자의 평균 더하기
+            prediction = prediction + user_mean
+    else:
+        prediction = user_mean
+    return prediction
+
+
+print(score(ubcf_bias_knn_original, 20))
+print(score(ubcf_bias_knn, 20))
 
 
 '''

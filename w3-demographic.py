@@ -53,9 +53,10 @@ def RMSE(y_true, y_pred):
     return np.sqrt(np.mean((np.array(y_true) - np.array(y_pred))**2))
 
 # Baseline model (평균 평점을 예측값을 돌려 줌, 평균이 없을 경우에는 3)
-def baseline(user_id, movie_id):
+def baseline_model(user_id, movie_id):
     try:
         rating = train_mean[movie_id]
+        # test set에서 예측하려는 movie_id가 train set(즉, train_mean)에 없을 수 있음
     except:
         rating = 3.0
     return rating
@@ -63,7 +64,7 @@ def baseline(user_id, movie_id):
 # 주어진 추천 알고리즘(model)의 RMSE를 계산하는 함수
 def score(model):
     # Construct a list of user-movie tuples from the testing dataset
-    id_pairs = zip(test['user_id'], test['movie_id']) # 25,000개
+    id_pairs = zip(test['user_id'], test['movie_id']) # test set 25,000개
 
     # Predict the rating for every user-movie tuple by using the model
     y_pred = np.array([model(user, movie) for (user, movie) in id_pairs])
@@ -75,8 +76,8 @@ def score(model):
     return RMSE(y_true, y_pred)
 
 # train data에서 movie_id별 rating의 ("모든" 사용자들의) 평균값
-train_mean = train.groupby(['movie_id'])['rating'].mean()
-print(f"Bestseller Model Score: {score(baseline)}")
+train_mean = train.groupby(['movie_id'])['rating'].mean() # (943, )
+print(f"Bestseller Model Score: {score(baseline_model)}")
 
 # Data frame의 pivot함수로 full matrix 구성
 rating_matrix = train.pivot(values='rating', index='user_id', columns='movie_id')

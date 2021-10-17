@@ -28,13 +28,14 @@ train, test, y_train, y_test = train_test_split(x, y, test_size=0.25, stratify=y
 rating_matrix = train.pivot(values='rating', index='user_id', columns='movie_id')
 
 # Train set의 모든 사용자 pair의 Cosine similarities 계산
+# 1) 사용자간의 유사도(weighted average에서의 가중치) 계산
 from sklearn.metrics.pairwise import cosine_similarity
 matrix_dummy = rating_matrix.copy().fillna(0) # null값 0으로 채우기
 user_similarity = cosine_similarity(matrix_dummy, matrix_dummy) # numpy array (943, 943)
 user_similarity = pd.DataFrame(user_similarity, index=rating_matrix.index, columns=rating_matrix.index)
 
 # Pearson correlation coefficient 사용
-# matrix_dummy = rating_matrix.copy().fillna(0).T
+# matrix_dummy = rating_matrix.copy().fillna(0).T # .corr()은 column끼리의 유사도 계산
 # user_similarity = matrix_dummy.corr(method='pearson')
 # user_similarity = pd.DataFrame(user_similarity, index=rating_matrix.index, columns=rating_matrix.index)
 
@@ -52,17 +53,17 @@ def score(model):
 # 가중치는 주어진 사용자와 다른 사용자 간의 유사도(user_similarity)
 def cf_simple(user_id, movie_id):
     if movie_id in rating_matrix:   # 해당 movie_id가 rating_matrix에 존재하는지 확인
-        # 현재 사용자와 다른 사용자 간의 similarity 가져오기
+        # "현재" 사용자와 다른 사용자 간의 similarity 가져오기
         sim_scores = user_similarity[user_id] # user_id와 다른 943명 사용자들 각각의 유사도: (943,)
-        # 현재 영화에 대한 모든 사용자의 rating값 가져오기
+        # "현재" 영화에 대한 모든 사용자의 rating값(null값 포함) 가져오기
         movie_ratings = rating_matrix[movie_id] # dataframe[] -> column 기준 인덱싱
-        # 현재 영화를 평가하지 않은 사용자의 index 가져오기
+        # "현재" 영화를 평가하지 않은 사용자의 index 가져오기
         none_rating_idx = movie_ratings[movie_ratings.isnull()].index
-        # 현재 영화를 평가하지 않은 사용자의 rating (null) 제거
+        # "현재" 영화를 평가하지 않은 사용자의 rating (null) 제거
         movie_ratings = movie_ratings.dropna()
-        # 현재 영화를 평가하지 않은 사용자의 similarity값 제거
+        # "현재" 영화를 평가하지 않은 사용자의 similarity값 제거
         sim_scores = sim_scores.drop(none_rating_idx)
-        # 현재 영화를 평가한 모든 사용자의 가중평균값 구하기
+        # "현재" 영화를 평가한 모든 사용자의 가중평균값 구하기
         # (sim_scores, movie_ratings의 내적) / (sim_scores=weight의 합)
         mean_rating = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
     else:  #해당 movie_id가 없으므로 기본값 3.0을 예측치로 돌려 줌
@@ -97,7 +98,7 @@ user_similarity = pd.DataFrame(user_similarity, index=rating_matrix.index, colum
 
 # 추천하기
 def recommender(user, n_items=10):
-    # 현재 사용자의 모든 아이템에 대한 예상 평점 계산
+    # "현재" 사용자의 모든 아이템에 대한 예상 평점 계산
     predictions = []
     rated_index = rating_matrix.loc[user][rating_matrix.loc[user].notnull()].index  # 이미 평가한 영화 확인, rating_matrix.loc[user].notnull()은 True, False로 이루어진 np.array return
     items = rating_matrix.loc[user].drop(rated_index)

@@ -31,14 +31,14 @@ import numpy as np
 
 def RMSE(y_true, y_pred):
     import numpy as np
-    return np.sqrt(np.mean((np.array(y_true) - np.array(y_pred))**2))
+    return np.sqrt(np.mean((np.array(y_true)-np.array(y_pred))**2))
 
 # 영화별 평점평균 구하기, len(movie_mean) = 1682
 movie_mean = ratings.groupby(['movie_id'])['rating'].mean()
 
 def recom_movie1(n_items=5):
     movie_sort = movie_mean.sort_values(ascending=False)[:n_items]
-    recom_movies = movies.loc[movie_sort.index] # (n_items, genre col 23개)
+    recom_movies = movies.loc[movie_sort.index] # size = (n_items, genre col 23개)
     recommendations = recom_movies['title']
     return recommendations
 
@@ -48,8 +48,11 @@ def recom_movie2(n_items=5):
 print(f'Recommended movies: {recom_movie1(10)}')
 
 # best-seller model의 정확도(rmse) 계산
+# y_pred는 특정 영화에 대한 user 943명 전체의 평균
+# 각 user가 평가한 영화에 대한 정보만 rating에 있으므로
+# 각 user가 평가한 영화 개수만큼만 y_pred를 구해주고, y_true, y_pred의 차이를 구하게 됨.
 rmse = []
-for user in set(ratings.index):
+for user in set(ratings.index): # 모든 유저 943명에 대하여
     y_true = ratings.loc[user][['movie_id', 'rating']]
     y_pred = movie_mean.loc[ratings.loc[user]['movie_id']]
     accuracy = RMSE(y_true['rating'], y_pred) # 한 명의 user에 대한 rmse

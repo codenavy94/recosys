@@ -41,9 +41,9 @@ def b_metrics(y_true, y_pred):
 
     import numpy as np
 
-    n_match = len(set(y_true).intersection(set(y_pred)))
-    precision = n_match / len(y_pred)
-    recall = n_match / len(y_true)
+    n_match = len(set(y_true).intersection(set(y_pred))) # TP
+    precision = n_match / len(y_pred) # TP / TP + FP
+    recall = n_match / len(y_true) # TP / TP + FN
     F1 = 2 * precision * recall / (precision + recall)
 
     return precision, recall, F1
