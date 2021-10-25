@@ -53,8 +53,8 @@ print(f'Recommended movies: {recom_movie1(10)}')
 # 각 user가 평가한 영화 개수만큼만 y_pred를 구해주고, y_true, y_pred의 차이를 구하게 됨.
 rmse = []
 for user in set(ratings.index): # 모든 유저 943명에 대하여
-    y_true = ratings.loc[user][['movie_id', 'rating']]
-    y_pred = movie_mean.loc[ratings.loc[user]['movie_id']]
+    y_true = ratings.loc[user][['movie_id', 'rating']] # 한 user가 평가한 모든 movie_id와 rating
+    y_pred = movie_mean.loc[ratings.loc[user]['movie_id']] # 위 movie_id들에 대한 예측평점
     accuracy = RMSE(y_true['rating'], y_pred) # 한 명의 user에 대한 rmse
     rmse.append(accuracy) # 최종적으로 rmse의 사이즈는 (943, )
 print(np.mean(rmse))

@@ -76,7 +76,7 @@ def score(model):
     return RMSE(y_true, y_pred)
 
 # train data에서 movie_id별 rating의 ("모든" 사용자들의) 평균값
-train_mean = train.groupby(['movie_id'])['rating'].mean() # (943, )
+train_mean = train.groupby(['movie_id'])['rating'].mean() # (1647, )
 print(f"Bestseller Model Score: {score(baseline_model)}")
 
 # Data frame의 pivot함수로 full matrix 구성

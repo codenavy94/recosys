@@ -40,7 +40,7 @@ rating_mean = rating_matrix.mean(axis=1) # (943, )
 def ubcf_bias_knn_original(user_id, movie_id, neighbor_size=20):
     import numpy as np
     # 현 user의 평균 가져오기
-    user_mean = rating_mean[user_id]
+    user_mean = rating_mean[user_id] # 상수
     if movie_id in rating_matrix: # 평가하려는 movie_id가 train set에 있다면
         # 현 user와 다른 사용자 간의 유사도 가져오기
         sim_scores = user_similarity[user_id]

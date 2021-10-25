@@ -77,8 +77,9 @@ item_similarity = cosine_similarity(matrix_dummy, matrix_dummy)
 item_similarity = pd.DataFrame(item_similarity, index=rating_matrix_t.index, columns=rating_matrix_t.index)
 
 def ibcf_binary(user, n_of_recomm=10, ref_size=2):
-    rated_index = rating_matrix_t[user][rating_matrix_t[user] > 0].index
-    ref_group = rating_matrix_t[user].sort_values(ascending=False)[:ref_size]
+    rated_index = rating_matrix_t[user][rating_matrix_t[user] > 0].index # 이미 본 movie_id의 index 정보 가져오기
+    ref_group = rating_matrix_t[user].sort_values(ascending=False)[:ref_size] # 평점이 높은대로 movie_id 정렬, ref_size만큼 가져오기
+    # 모든 영화 각각에 대해 ref_group 과의 item_similarity 평균 계산
     sim_scores = item_similarity[ref_group.index].mean(axis=1) # item_similarity[ref_group.index] -> (1631, 10) -> axis=1 기준으로 mean() -> (1631, )
     sim_scores = sim_scores.drop(rated_index)
     recommendations = sim_scores.sort_values(ascending=False)[:n_of_recomm].index

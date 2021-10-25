@@ -118,7 +118,7 @@ def time_gap_calc():
 
 def time_gap_calc2():
     tg_matrix = np.array(time_matrix)
-    return np.nanmean(np.abs(tg_matrix[np.newaxis,:,:] - tg_matrix[:,np.newaxis,:]), axis=2)
+    return np.nanmean(np.abs(tg_matrix[np.newaxis,:,:] - tg_matrix[:,np.newaxis,:]), axis=2) # (943, 943)
 
 sig_counts = count_num()
 sig_counts = pd.DataFrame(sig_counts, index=rating_matrix.index, columns=rating_matrix.index).fillna(0)

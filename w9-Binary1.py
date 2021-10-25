@@ -1,21 +1,52 @@
 # Created on Oct 2021
-# author: 임일
-# Matrix factorization 2 - Train/Test 분리해서 정확도 계산
+# Author: 임일
+# Binary data
 
-import numpy as np
 import pandas as pd
+import numpy as np
 from sklearn.utils import shuffle
 
-r_cols = ['user_id', 'movie_id', 'rating', 'timestamp']
-ratings = pd.read_csv('C:/RecoSys/Data/u.data', names=r_cols,  sep='\t',encoding='latin-1')
-ratings = ratings[['user_id', 'movie_id', 'rating']].astype(int)            # timestamp 제거
+# Data 읽어오기
+articles = pd.read_csv('C:/RecoSys/Data/shared_articles.csv')
+interactions = pd.read_csv('C:/RecoSys/Data/users_interactions.csv')
+articles.drop(['authorUserAgent', 'authorRegion', 'authorCountry'], axis=1, inplace=True)
+interactions.drop(['userAgent', 'userRegion', 'userCountry'], axis=1, inplace=True)
+
+# Data merge
+articles = articles[articles['eventType'] == 'CONTENT SHARED']
+articles = articles.drop('eventType', axis=1)
+data = pd.merge(interactions[['contentId','personId', 'eventType']], articles[['contentId', 'title']], how='inner', on='contentId')
+
+# Event 종류별로 다른 가중치 부여
+event_type_strength = {
+   'VIEW': 1.0,
+   'LIKE': 2.0, 
+   'BOOKMARK': 1.0, 
+   'FOLLOW': 2.0,
+   'COMMENT CREATED': 2.0,  
+}
+data['rating'] = data['eventType'].apply(lambda x: event_type_strength[x])
+
+# 중복값 지우기
+data = data.drop_duplicates()
+grouped_data = data.groupby(['personId', 'contentId', 'title']).sum().reset_index()
+
+# 데이터 값 recoding 하기 
+grouped_data['personId'] = grouped_data['personId'].astype("category")
+grouped_data['contentId'] = grouped_data['contentId'].astype("category")
+grouped_data['user_id'] = grouped_data['personId'].cat.codes
+grouped_data['item_id'] = grouped_data['contentId'].cat.codes
+ratings = grouped_data[['user_id', 'item_id', 'rating']]
+
+
+###### MF 적용
 
 # train test 분리
 TRAIN_SIZE = 0.75
 ratings = shuffle(ratings, random_state=1)
 cutoff = int(TRAIN_SIZE * len(ratings))
-ratings_train = ratings.iloc[:cutoff] # (75000, 3)
-ratings_test = ratings.iloc[cutoff:] # (25000, 3)
+ratings_train = ratings.iloc[:cutoff]
+ratings_test = ratings.iloc[cutoff:]
 
 # New MF class for training & testing
 class NEW_MF():
@@ -70,7 +101,7 @@ class NEW_MF():
 
         # List of training samples
         rows, columns = self.R.nonzero()
-        self.samples = [(i,j, self.R[i,j]) for i, j in zip(rows, columns)] # 75000개 원소
+        self.samples = [(i,j, self.R[i,j]) for i, j in zip(rows, columns)]
 
         # Stochastic gradient descent for given number of iterations
         best_RMSE = 10000
@@ -136,100 +167,8 @@ class NEW_MF():
         return self.get_prediction(self.user_id_index[user_id], self.item_id_index[movie_id])
 
 # Testing MF RMSE
-R_temp = ratings.pivot(index='user_id', columns='movie_id', values='rating').fillna(0)
-mf = NEW_MF(R_temp, K=220, alpha=0.0014, beta=0.075, iterations=350, tolerance=0.0001, verbose=True)
+R_temp = ratings.pivot(index='user_id', columns='item_id', values='rating').fillna(0)
+mf = NEW_MF(R_temp, K=100, alpha=0.001, beta=0.001, iterations=250, tolerance=0.0001, verbose=True)
 test_set = mf.set_test(ratings_test)
 result = mf.test()
-print(mf.get_one_prediction(1,2),R_temp.loc[1][2])
 
-'''
-###################### 추천하기 ######################
-
-import pandas as pd
-# 추천을 위한 데이터 읽기 (추천을 위해서는 전체 데이터를 읽어야 함)
-r_cols = ['user_id', 'movie_id', 'rating', 'timestamp']
-ratings = pd.read_csv('C:/Recosys/Data/u.data', names=r_cols,  sep='\t',encoding='latin-1')
-ratings = ratings.drop('timestamp', axis=1)
-rating_matrix = ratings.pivot(values='rating', index='user_id', columns='movie_id')
-
-# 영화 제목 가져오기
-i_cols = ['movie_id', 'title', 'release date', 'video release date', 'IMDB URL', 
-          'unknown', 'Action', 'Adventure', 'Animation', 'Children\'s', 'Comedy', 
-          'Crime', 'Documentary', 'Drama', 'Fantasy', 'Film-Noir', 'Horror', 
-          'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western']
-movies = pd.read_csv('C:/Recosys/Data/u.item', sep='|', names=i_cols, encoding='latin-1')
-movies = movies[['movie_id', 'title']]
-movies = movies.set_index('movie_id')
-
-# 추천하기
-def recommender(user, n_items=10):
-    # 현재 사용자의 모든 아이템에 대한 예상 평점 계산
-    predictions = []
-    rated_index = rating_matrix.loc[user][rating_matrix.loc[user] > 0].index    # 이미 평가한 영화 확인
-    items = rating_matrix.loc[user].drop(rated_index)
-    for item in items.index:
-        predictions.append(mf.get_one_prediction(user, item))                   # 예상평점 계산
-    recommendations = pd.Series(data=predictions, index=items.index, dtype=float)
-    recommendations = recommendations.sort_values(ascending=False)[:n_items]    # 예상평점이 가장 높은 영화 선택
-    recommended_items = movies.loc[recommendations.index]['title']
-    return recommended_items
-
-# 영화 추천 함수 부르기
-recommender(3, 30)
-
-
-# To find optimal K
-results = []
-index = []
-for K in range(190, 241, 5):
-    print('K =', K)
-    R_temp = ratings.pivot(index='user_id', columns='movie_id', values='rating').fillna(0)
-    mf = NEW_MF(R_temp, K=K, alpha=0.0014, beta=0.075, iterations=500, tolerance=0.005, verbose=True)
-    test_set = mf.set_test(ratings_test)
-    result = mf.test()
-    index.append(K)
-    results.append(result)
-
-# To find optimal alpha
-results = []
-index = []
-for i in range(15, 22):
-    alpha = i/10000
-    print('alpha =', alpha)
-    R_temp = ratings.pivot(index='user_id', columns='movie_id', values='rating').fillna(0)
-    mf = NEW_MF(R_temp, K=220, alpha=alpha, beta=0.075, iterations=500, tolerance=0.005, verbose=True)
-    test_set = mf.set_test(ratings_test)
-    result = mf.test()
-    index.append(alpha)
-    results.append(result)
-    
-# To find optimal beta
-results = []
-index = []
-for i in range(30, 91, 5):
-    beta = i/1000
-    print('beta =', beta)
-    R_temp = ratings.pivot(index='user_id', columns='movie_id', values='rating').fillna(0)
-    mf = NEW_MF(R_temp, K=220, alpha=0.0014, beta=beta, iterations=500, tolerance=0.005, verbose=True)
-    test_set = mf.set_test(ratings_test)
-    result = mf.test()
-    index.append(beta)
-    results.append(result)
-
-summary = []
-for i in range(len(results)):
-    RMSE = []
-    for result in results[i]:
-        RMSE.append(result[2])
-    min = np.min(RMSE)
-    j = RMSE.index(min)
-    summary.append([index[i], j+1, RMSE[j]])
-
-import matplotlib.pyplot as plt
-plt.plot(index, [x[2] for x in summary])
-plt.ylim(0.905, 0.91)
-#plt.xlabel('K')
-plt.ylabel('RMSE')
-plt.show()
-
-'''

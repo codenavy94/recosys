@@ -1,27 +1,26 @@
 # Created on Oct 2021
 # author: 임일
-# Matrix factorization 2 - Train/Test 분리해서 정확도 계산
+# SVD++ 최적 파라메터 찾기
 
 import numpy as np
 import pandas as pd
-from sklearn.utils import shuffle
 
 r_cols = ['user_id', 'movie_id', 'rating', 'timestamp']
 ratings = pd.read_csv('C:/RecoSys/Data/u.data', names=r_cols,  sep='\t',encoding='latin-1')
 ratings = ratings[['user_id', 'movie_id', 'rating']].astype(int)            # timestamp 제거
 
 # train test 분리
+from sklearn.utils import shuffle
 TRAIN_SIZE = 0.75
 ratings = shuffle(ratings, random_state=1)
 cutoff = int(TRAIN_SIZE * len(ratings))
-ratings_train = ratings.iloc[:cutoff] # (75000, 3)
-ratings_test = ratings.iloc[cutoff:] # (25000, 3)
+ratings_train = ratings.iloc[:cutoff]
+ratings_test = ratings.iloc[cutoff:]
 
-# New MF class for training & testing
-class NEW_MF():
+class SVD_PP():
     # Initializing the object
-    def __init__(self, ratings, K, alpha, beta, iterations, tolerance=0.005, verbose=True):
-        self.R = np.array(ratings)
+    def __init__(self, ratings, K, alpha, beta, lamda, iterations, tolerance, verbose=True):
+        self.R = np.array(ratings)  
         # user_id, movie_id를 R의 index와 매칭하기 위한 dictionary 생성
         item_id_index = []
         index_item_id = []
@@ -41,6 +40,7 @@ class NEW_MF():
         self.num_users, self.num_items = np.shape(self.R)
         self.K = K
         self.alpha = alpha
+        self.lamda = lamda
         self.beta = beta
         self.iterations = iterations
         self.tolerance = tolerance
@@ -59,18 +59,27 @@ class NEW_MF():
         return test_set                         # Return test set
 
     def test(self):                             # Training 하면서 test set의 정확도를 계산하는 메소드 
-        # Initializing user-feature and movie-feature matrix
+        # Initializing user-feature and movie-feature matrix 
         self.P = np.random.normal(scale=1./self.K, size=(self.num_users, self.K))
         self.Q = np.random.normal(scale=1./self.K, size=(self.num_items, self.K))
+        self.y = np.random.normal(scale=1./self.K, size=(self.num_items, self.K))
 
         # Initializing the bias terms
         self.b_u = np.zeros(self.num_users)
-        self.b_d = np.zeros(self.num_items)
-        self.b = np.mean(self.R[self.R.nonzero()])
+        self.b_i = np.zeros(self.num_items)
+        self.b = np.mean(self.R[np.where(self.R != 0)])
+
+        # 평가한 영화를 1로 바꾼 implicit data 생성
+        self.Ru = (self.R > 0).astype(float)
+        self.Ru_1_2 = np.sqrt(np.sum(self.Ru, axis=1))
 
         # List of training samples
-        rows, columns = self.R.nonzero()
-        self.samples = [(i,j, self.R[i,j]) for i, j in zip(rows, columns)] # 75000개 원소
+        self.samples = [
+        (i, j, self.R[i, j])
+        for i in range(self.num_users)
+        for j in range(self.num_items)
+        if self.R[i, j] > 0
+        ]
 
         # Stochastic gradient descent for given number of iterations
         best_RMSE = 10000
@@ -100,11 +109,12 @@ class NEW_MF():
             e = (r - prediction)
 
             self.b_u[i] += self.alpha * (e - self.beta * self.b_u[i])
-            self.b_d[j] += self.alpha * (e - self.beta * self.b_d[j])
+            self.b_i[j] += self.alpha * (e - self.beta * self.b_i[j])
 
-            self.Q[j, :] += self.alpha * (e * self.P[i, :] - self.beta * self.Q[j,:])
-            self.P[i, :] += self.alpha * (e * self.Q[j, :] - self.beta * self.P[i,:])
-
+            self.Q[j, :] += self.alpha * (e * (self.P[i, :] + np.dot(self.Ru[i,:], self.y) / self.Ru_1_2[i]) - self.lamda * self.Q[j,:])
+            self.P[i, :] += self.alpha * (e * self.Q[j, :] - self.lamda * self.P[i,:])
+            self.y[j, :] += self.alpha * (e * self.Q[j,:] / self.Ru_1_2[i] - self.lamda * self.y[j, :])
+            
     # Computing mean squared error
     def rmse(self):
         xs, ys = self.R.nonzero()
@@ -117,102 +127,94 @@ class NEW_MF():
         self.predictions = np.array(self.predictions)
         self.errors = np.array(self.errors)
         return np.sqrt(np.mean(self.errors**2))
-
-    # Test RMSE 계산하는 method 
+    
     def test_rmse(self):
         error = 0
         for one_set in self.test_set:
             predicted = self.get_prediction(one_set[0], one_set[1])
             error += pow(one_set[2] - predicted, 2)
         return np.sqrt(error/len(self.test_set))
-
+    
     # Ratings for user i and moive j
     def get_prediction(self, i, j):
-        prediction = self.b + self.b_u[i] + self.b_d[j] + self.P[i, :].dot(self.Q[j, :].T)
+        prediction = self.b + self.b_u[i] + self.b_i[j] + (self.P[i, :] + np.dot(self.Ru[i, :], self.y) / self.Ru_1_2[i]).dot(self.Q[j, :].T)
         return prediction
 
     # Ratings for user_id and moive_id
     def get_one_prediction(self, user_id, movie_id):
         return self.get_prediction(self.user_id_index[user_id], self.item_id_index[movie_id])
 
-# Testing MF RMSE
-R_temp = ratings.pivot(index='user_id', columns='movie_id', values='rating').fillna(0)
-mf = NEW_MF(R_temp, K=220, alpha=0.0014, beta=0.075, iterations=350, tolerance=0.0001, verbose=True)
-test_set = mf.set_test(ratings_test)
-result = mf.test()
-print(mf.get_one_prediction(1,2),R_temp.loc[1][2])
-
-'''
-###################### 추천하기 ######################
-
-import pandas as pd
-# 추천을 위한 데이터 읽기 (추천을 위해서는 전체 데이터를 읽어야 함)
-r_cols = ['user_id', 'movie_id', 'rating', 'timestamp']
-ratings = pd.read_csv('C:/Recosys/Data/u.data', names=r_cols,  sep='\t',encoding='latin-1')
-ratings = ratings.drop('timestamp', axis=1)
-rating_matrix = ratings.pivot(values='rating', index='user_id', columns='movie_id')
-
-# 영화 제목 가져오기
-i_cols = ['movie_id', 'title', 'release date', 'video release date', 'IMDB URL', 
-          'unknown', 'Action', 'Adventure', 'Animation', 'Children\'s', 'Comedy', 
-          'Crime', 'Documentary', 'Drama', 'Fantasy', 'Film-Noir', 'Horror', 
-          'Musical', 'Mystery', 'Romance', 'Sci-Fi', 'Thriller', 'War', 'Western']
-movies = pd.read_csv('C:/Recosys/Data/u.item', sep='|', names=i_cols, encoding='latin-1')
-movies = movies[['movie_id', 'title']]
-movies = movies.set_index('movie_id')
-
-# 추천하기
-def recommender(user, n_items=10):
-    # 현재 사용자의 모든 아이템에 대한 예상 평점 계산
-    predictions = []
-    rated_index = rating_matrix.loc[user][rating_matrix.loc[user] > 0].index    # 이미 평가한 영화 확인
-    items = rating_matrix.loc[user].drop(rated_index)
-    for item in items.index:
-        predictions.append(mf.get_one_prediction(user, item))                   # 예상평점 계산
-    recommendations = pd.Series(data=predictions, index=items.index, dtype=float)
-    recommendations = recommendations.sort_values(ascending=False)[:n_items]    # 예상평점이 가장 높은 영화 선택
-    recommended_items = movies.loc[recommendations.index]['title']
-    return recommended_items
-
-# 영화 추천 함수 부르기
-recommender(3, 30)
-
-
 # To find optimal K
 results = []
 index = []
-for K in range(190, 241, 5):
+for K in range(200, 261, 5):
     print('K =', K)
-    R_temp = ratings.pivot(index='user_id', columns='movie_id', values='rating').fillna(0)
-    mf = NEW_MF(R_temp, K=K, alpha=0.0014, beta=0.075, iterations=500, tolerance=0.005, verbose=True)
-    test_set = mf.set_test(ratings_test)
-    result = mf.test()
+    R_temp = ratings.pivot(index = 'user_id', columns ='movie_id', values = 'rating').fillna(0)
+    SVD = SVD_PP(R_temp, K=K, alpha=0.001, beta=0.04, lamda=0.0012, iterations=500, tolerance=0.003, verbose=True)
+    test_set = SVD.set_test(ratings_test)
+    result = SVD.test()
     index.append(K)
     results.append(result)
+
+summary = []
+for i in range(len(results)):
+    RMSE = []
+    for result in results[i]:
+        RMSE.append(result[2])
+    min = np.min(RMSE)
+    j = RMSE.index(min)
+    summary.append([index[i], j+1, RMSE[j]])
+
+import matplotlib.pyplot as plt
+plt.plot(index, [x[2] for x in summary])
+plt.ylim(0.89, 0.92)
+plt.xlabel('K')
+plt.ylabel('RMSE')
+plt.show()
+
+
 
 # To find optimal alpha
 results = []
 index = []
-for i in range(15, 22):
+for i in range(8, 16):
     alpha = i/10000
     print('alpha =', alpha)
-    R_temp = ratings.pivot(index='user_id', columns='movie_id', values='rating').fillna(0)
-    mf = NEW_MF(R_temp, K=220, alpha=alpha, beta=0.075, iterations=500, tolerance=0.005, verbose=True)
-    test_set = mf.set_test(ratings_test)
-    result = mf.test()
+    R_temp = ratings.pivot(index = 'user_id', columns ='movie_id', values = 'rating').fillna(0)
+    SVD = SVD_PP(R_temp, K=240, alpha=alpha, beta=0.04, lamda=0.0012, iterations=500, tolerance=0.003, verbose=True)
+    test_set = SVD.set_test(ratings_test)
+    result = SVD.test()
     index.append(alpha)
     results.append(result)
+
+summary = []
+for i in range(len(results)):
+    RMSE = []
+    for result in results[i]:
+        RMSE.append(result[2])
+    min = np.min(RMSE)
+    j = RMSE.index(min)
+    summary.append([index[i], j+1, RMSE[j]])
+
+import matplotlib.pyplot as plt
+plt.plot(index, [x[2] for x in summary])
+plt.ylim(0.89, 0.91)
+plt.xlabel('Alpha')
+plt.ylabel('RMSE')
+plt.show()
+
+
     
 # To find optimal beta
 results = []
 index = []
-for i in range(30, 91, 5):
+for i in range(20, 61, 5):
     beta = i/1000
     print('beta =', beta)
-    R_temp = ratings.pivot(index='user_id', columns='movie_id', values='rating').fillna(0)
-    mf = NEW_MF(R_temp, K=220, alpha=0.0014, beta=beta, iterations=500, tolerance=0.005, verbose=True)
-    test_set = mf.set_test(ratings_test)
-    result = mf.test()
+    R_temp = ratings.pivot(index = 'user_id', columns ='movie_id', values = 'rating').fillna(0)
+    SVD = SVD_PP(R_temp, K=240, alpha=0.001, beta=beta, lamda=0.0012, iterations=500, tolerance=0.003, verbose=True)
+    test_set = SVD.set_test(ratings_test)
+    result = SVD.test()
     index.append(beta)
     results.append(result)
 
@@ -227,9 +229,39 @@ for i in range(len(results)):
 
 import matplotlib.pyplot as plt
 plt.plot(index, [x[2] for x in summary])
-plt.ylim(0.905, 0.91)
-#plt.xlabel('K')
+plt.ylim(0.89, 0.91)
+plt.xlabel('Beta')
 plt.ylabel('RMSE')
 plt.show()
 
-'''
+
+
+# To find optimal lambda
+results = []
+index = []
+for i in range(5, 22, 2):
+    lamda = i/10000
+    print('lambda =', lamda)
+    R_temp = ratings.pivot(index = 'user_id', columns ='movie_id', values = 'rating').fillna(0)
+    SVD = SVD_PP(R_temp, K=240, alpha=0.001, beta=0.04, lamda=lamda, iterations=500, tolerance=0.003, verbose=True)
+    test_set = SVD.set_test(ratings_test)
+    result = SVD.test()
+    index.append(lamda)
+    results.append(result)
+
+summary = []
+for i in range(len(results)):
+    RMSE = []
+    for result in results[i]:
+        RMSE.append(result[2])
+    min = np.min(RMSE)
+    j = RMSE.index(min)
+    summary.append([index[i], j+1, RMSE[j]])
+
+import matplotlib.pyplot as plt
+plt.plot(index, [x[2] for x in summary])
+plt.ylim(0.89, 0.91)
+plt.xlabel('Lamda')
+plt.ylabel('RMSE')
+plt.show()
+

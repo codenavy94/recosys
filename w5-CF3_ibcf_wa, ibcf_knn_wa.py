@@ -68,9 +68,9 @@ def ibcf_knn_original(user_id, movie_id, item_neighbor_size=20):
     if user_id in rating_matrix_t:          # 사용자가 train set에 있는지 확인
         if movie_id in item_similarity:     # 현재 영화가 train set에 있는지 확인
             # 현재 영화와 다른 영화의 similarity 값 가져오기
-            sim_scores = item_similarity[movie_id]
+            sim_scores = item_similarity[movie_id] # (1631, )
             # 현 사용자의 모든 rating 값 가져오기
-            user_rating = rating_matrix_t[user_id]
+            user_rating = rating_matrix_t[user_id] # (1631, )
             # 사용자가 평가하지 않은 영화 index 가져오기
             non_rating_idx = user_rating[user_rating.isnull()].index
             # 사용자가 평가하지 않은 영화 제거

@@ -61,38 +61,38 @@ def score(model, neighbor_size=0):
     return RMSE(y_true, y_pred)
 
 # Neighbor size를 고려하는 추천(argsort 사용)
-# def cf_knn(user_id, movie_id, neighbor_size=20):
-#     if movie_id in rating_matrix: # movie_id가 train set에 존재하는지 확인
-#         # 현재 사용자와 다른 사용자 간의 similarity 가져오기
-#         sim_scores = user_similarity[user_id]
-#         # 현재 영화에 대한 모든 사용자의 rating값 가져오기
-#         movie_ratings = rating_matrix[movie_id]
-#         # 현재 영화를 평가하지 않은 사용자의 index 가져오기
-#         none_rating_idx = movie_ratings[movie_ratings.isnull()].index
-#         # 현재 영화를 평가하지 않은 사용자의 rating (null) 제거
-#         movie_ratings = movie_ratings.drop(none_rating_idx)
-#         # 현재 영화를 평가하지 않은 사용자의 similarity값 제거
-#         sim_scores = sim_scores.drop(none_rating_idx)
-#         if neighbor_size == 0:               # Neighbor size가 지정되지 않은 경우
-#             # 현재 영화를 평가한 모든 사용자의 가중평균값 구하기
-#             mean_rating = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
-#         else:                                # Neighbor size가 지정된 경우
-#             # 지정된 neighbor size 값과 해당 영화를 평가한 총사용자 수 중 작은 것으로 결정
-#             neighbor_size = min(neighbor_size, len(sim_scores)) # 해당 영화를 평가한 사용자 수가 지정한 k보다 작을수도 있으므로
-#             # series -> array로 바꾸기 (argsort를 사용하기 위함)
-#             sim_scores = np.array(sim_scores)
-#             movie_ratings = np.array(movie_ratings)
-#             # 유사도를 (오름차순) 순서대로 정렬하고 그에 해당하는 user번호를 가져오기
-#             user_idx = np.argsort(sim_scores)
-#             # 유사도를 neighbor size만큼 뒤에서부터 가져오기(유사도 큰 순서) ex) [-20:]
-#             sim_scores = sim_scores[user_idx][-neighbor_size:]
-#             # 영화 rating을 neighbor size만큼 받기
-#             movie_ratings = movie_ratings[user_idx][-neighbor_size:]
-#             # 최종 예측값 계산 
-#             mean_rating = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
-#     else:
-#         mean_rating = 3.0
-#     return mean_rating
+def cf_knn(user_id, movie_id, neighbor_size=20):
+    if movie_id in rating_matrix: # movie_id가 train set에 존재하는지 확인
+        # 현재 사용자와 다른 사용자 간의 similarity 가져오기
+        sim_scores = user_similarity[user_id]
+        # 현재 영화에 대한 모든 사용자의 rating값 가져오기
+        movie_ratings = rating_matrix[movie_id]
+        # 현재 영화를 평가하지 않은 사용자의 index 가져오기
+        none_rating_idx = movie_ratings[movie_ratings.isnull()].index
+        # 현재 영화를 평가하지 않은 사용자의 rating (null) 제거
+        movie_ratings = movie_ratings.drop(none_rating_idx)
+        # 현재 영화를 평가하지 않은 사용자의 similarity값 제거
+        sim_scores = sim_scores.drop(none_rating_idx)
+        if neighbor_size == 0:               # Neighbor size가 지정되지 않은 경우
+            # 현재 영화를 평가한 모든 사용자의 가중평균값 구하기
+            mean_rating = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
+        else:                                # Neighbor size가 지정된 경우
+            # 지정된 neighbor size 값과 해당 영화를 평가한 총사용자 수 중 작은 것으로 결정
+            neighbor_size = min(neighbor_size, len(sim_scores)) # 해당 영화를 평가한 사용자 수가 지정한 k보다 작을수도 있으므로
+            # series -> array로 바꾸기 (argsort를 사용하기 위함)
+            sim_scores = np.array(sim_scores)
+            movie_ratings = np.array(movie_ratings)
+            # 유사도를 (오름차순) 순서대로 정렬하고 그에 해당하는 user번호를 가져오기
+            user_idx = np.argsort(sim_scores)
+            # 유사도를 neighbor size만큼 뒤에서부터 가져오기(유사도 큰 순서) ex) [-20:]
+            sim_scores = sim_scores[user_idx][-neighbor_size:]
+            # 영화 rating을 neighbor size만큼 받기
+            movie_ratings = movie_ratings[user_idx][-neighbor_size:]
+            # 최종 예측값 계산 
+            mean_rating = np.dot(sim_scores, movie_ratings) / sim_scores.sum()
+    else:
+        mean_rating = 3.0
+    return mean_rating
 
 # argsort 사용하지 않는 codenavy94 버전
 def cf_knn(user_id, movie_id, neighbor_size=20):
